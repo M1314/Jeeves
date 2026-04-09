@@ -1,2 +1,2 @@
 # Jeeves
-A search service for the Ecosophia community
+A multiplatform search service for the Ecosophia community using Flutter
