@@ -1,2 +1,2 @@
 # Jeeves
-A multiplatform search, storage and back-up service for the Ecosophia community using Flutter
+A multiplatform search, storage and back-up service for the Ecosophia community built with Flutter
