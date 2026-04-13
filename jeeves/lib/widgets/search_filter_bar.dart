@@ -1,10 +1,31 @@
+/// Collapsible filter panel for the Search screen.
+///
+/// [SearchFilterBar] wraps an [ExpansionTile] containing five filter controls:
+/// - **Posts / Comments toggles** — [FilterChip]s that include or exclude each
+///   content type from the search results.
+/// - **Author** — substring filter applied as a SQL LIKE clause.
+/// - **Label / tag** — substring filter matched against the serialised labels
+///   column.
+/// - **Date range** — "From" and "To" date pickers that produce an inclusive
+///   [DateTime] range; a clear button removes both dates at once.
+///
+/// Any change to a filter immediately calls [onFiltersChanged] so that the
+/// parent [SearchScreen] can re-issue the database query with the updated
+/// constraints.
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-/// A compact filter bar for narrowing search results.
+/// Collapsible filter bar emitted above the search results list.
 ///
-/// Calls [onFiltersChanged] whenever any filter value changes.
+/// [onFiltersChanged] is called whenever the user changes any filter value,
+/// including toggling content types, typing in the author/label fields,
+/// picking a date, or clearing the date range.
 class SearchFilterBar extends StatefulWidget {
+  /// Callback invoked on every filter state change.
+  ///
+  /// All parameters are optional; omitting a parameter (or passing `null`)
+  /// means "no filter" for that dimension.  [searchPosts] and [searchComments]
+  /// default to `true` if omitted.
   final void Function({
     String? author,
     String? label,
@@ -21,15 +42,31 @@ class SearchFilterBar extends StatefulWidget {
 }
 
 class _SearchFilterBarState extends State<SearchFilterBar> {
+  /// Text controller for the author filter field.
   final _authorController = TextEditingController();
+
+  /// Text controller for the label filter field.
   final _labelController = TextEditingController();
+
+  /// Inclusive start of the date range, or `null` for no lower bound.
   DateTime? _from;
+
+  /// Inclusive end of the date range (clamped to end-of-day), or `null`.
   DateTime? _to;
+
+  /// Whether post results should be included in the next search.
   bool _searchPosts = true;
+
+  /// Whether comment results should be included in the next search.
   bool _searchComments = true;
 
+  /// Notifies the parent screen of the current filter state.
+  ///
+  /// Called after every user interaction that changes a filter value.
   void _emit() {
     widget.onFiltersChanged(
+      // Treat empty strings as "no filter" (null) so the SQL WHERE clause
+      // is only added when the user has actually typed something.
       author: _authorController.text.trim().isEmpty
           ? null
           : _authorController.text.trim(),
@@ -43,8 +80,14 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
     );
   }
 
+  /// Opens the platform date picker and stores the chosen date as either
+  /// [_from] (when [isFrom] is `true`) or [_to] (end-of-day).
+  ///
+  /// The "To" date is clamped to 23:59:59 on the selected day so the range
+  /// is fully inclusive.
   Future<void> _pickDate(BuildContext context, bool isFrom) async {
     final now = DateTime.now();
+    // Pre-select the currently set date (or today) as the initial value.
     final initial = isFrom ? (_from ?? now) : (_to ?? now);
     final picked = await showDatePicker(
       context: context,
@@ -57,6 +100,8 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
       if (isFrom) {
         _from = picked;
       } else {
+        // Set end-of-day to make the "to" filter fully inclusive of the
+        // selected date (midnight would exclude events on that day).
         _to = DateTime(picked.year, picked.month, picked.day, 23, 59, 59);
       }
     });
@@ -65,6 +110,7 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
 
   @override
   void dispose() {
+    // Release text controllers to prevent memory leaks.
     _authorController.dispose();
     _labelController.dispose();
     super.dispose();
@@ -84,9 +130,10 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Type toggles
+              // ── Content type toggles ──────────────────────────────
               Row(
                 children: [
+                  // Posts toggle — always shows at least one type selected.
                   FilterChip(
                     label: const Text('Posts'),
                     selected: _searchPosts,
@@ -96,6 +143,7 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
                     },
                   ),
                   const SizedBox(width: 8),
+                  // Comments toggle.
                   FilterChip(
                     label: const Text('Comments'),
                     selected: _searchComments,
@@ -107,7 +155,8 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
                 ],
               ),
               const SizedBox(height: 8),
-              // Author
+
+              // ── Author filter ─────────────────────────────────────
               TextField(
                 controller: _authorController,
                 decoration: const InputDecoration(
@@ -115,10 +164,12 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
                   prefixIcon: Icon(Icons.person_outline),
                   isDense: true,
                 ),
+                // Re-emit on every keystroke for responsive filtering.
                 onChanged: (_) => _emit(),
               ),
               const SizedBox(height: 8),
-              // Label
+
+              // ── Label / tag filter ────────────────────────────────
               TextField(
                 controller: _labelController,
                 decoration: const InputDecoration(
@@ -129,13 +180,15 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
                 onChanged: (_) => _emit(),
               ),
               const SizedBox(height: 8),
-              // Date range
+
+              // ── Date range picker ─────────────────────────────────
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.calendar_today, size: 16),
                       label: Text(
+                        // Show the selected date or a placeholder.
                         _from != null ? 'From: ${fmt.format(_from!)}' : 'From',
                         style: theme.textTheme.bodySmall,
                       ),
@@ -153,6 +206,7 @@ class _SearchFilterBarState extends State<SearchFilterBar> {
                       onPressed: () => _pickDate(context, false),
                     ),
                   ),
+                  // Show the clear button only when at least one date is set.
                   if (_from != null || _to != null)
                     IconButton(
                       icon: const Icon(Icons.clear, size: 18),
