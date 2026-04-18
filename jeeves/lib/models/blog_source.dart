@@ -7,7 +7,16 @@ enum SourceType {
 
   /// Dreamwidth journal — fetched via the site's public Atom feed
   /// (`/data/atom`).  Comment sync is not supported for this type.
-  dreamwidth,
+  dreamwidth;
+
+  /// Deserialises a [SourceType] from its [name] string as stored in the
+  /// database.  Unrecognised values fall back to [wordpress].
+  static SourceType fromString(String value) {
+    return SourceType.values.firstWhere(
+      (t) => t.name == value,
+      orElse: () => SourceType.wordpress,
+    );
+  }
 }
 
 /// Immutable configuration record for a blog that Jeeves should scrape,
@@ -73,10 +82,9 @@ class BlogSource {
       id: map['id'] as String,
       name: map['name'] as String,
       siteUrl: map['site_url'] as String,
-      sourceType: _sourceTypeFromString(map['source_type'] as String? ?? 'wordpress'),
+      sourceType: SourceType.fromString(map['source_type'] as String? ?? 'wordpress'),
       // SQLite INTEGER 1/0 → Dart bool.
-      enabled: (map['enabled'] as int? ?? 1) == 1,
-      // last_sync_at is NULL until the first successful sync completes.
+      enabled: (map['enabled'] as int? ?? 1) == 1,      // last_sync_at is NULL until the first successful sync completes.
       lastSyncAt: map['last_sync_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['last_sync_at'] as int)
           : null,
@@ -120,13 +128,6 @@ class BlogSource {
       enabled: enabled ?? this.enabled,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       syncIntervalHours: syncIntervalHours ?? this.syncIntervalHours,
-    );
-  }
-
-  static SourceType _sourceTypeFromString(String value) {
-    return SourceType.values.firstWhere(
-      (t) => t.name == value,
-      orElse: () => SourceType.wordpress,
     );
   }
 }

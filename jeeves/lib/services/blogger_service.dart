@@ -254,9 +254,10 @@ class FeedService {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
-  /// Strips any trailing slash from [url] so that path segments can be
+  /// Strips a single trailing slash from [url] so that path segments can be
   /// appended with a single `/` separator.
-  String _normalise(String url) => url.replaceAll(RegExp(r'/$'), '');
+  String _normalise(String url) =>
+      url.endsWith('/') ? url.substring(0, url.length - 1) : url;
 
   // ─── HTTP with exponential back-off ──────────────────────────────────────
 

@@ -239,10 +239,21 @@ class Post {
     String? text(String localName) =>
         entry.findElements(localName).firstOrNull?.innerText.trim();
 
-    // Atom `<id>` is the canonical URL; extract the numeric entry ID from it.
+    // Extract a stable numeric post ID from the Atom `<id>` element.
+    //
+    // Dreamwidth feeds may use either:
+    //   • URL style:     "https://ecosophia.dreamwidth.org/12345.html"
+    //   • Tag URI style: "tag:dreamwidth.org,2009:user:ecosophia:12345"
+    //
+    // Both patterns end with a numeric entry ID; we match the last
+    // unambiguous run of digits in the string.  The fallback (when no
+    // digits are found) is the raw `<id>` value itself, which is still
+    // unique within the feed even if it is verbose.
     final idUrl = text('id') ?? '';
-    final idMatch = RegExp(r'/(\d+)\.html').firstMatch(idUrl);
-    final postId = idMatch?.group(1) ?? idUrl;
+    final allDigits = RegExp(r'(\d+)').allMatches(idUrl).toList();
+    final postId = allDigits.isNotEmpty
+        ? allDigits.last.group(1)!
+        : idUrl;
 
     // Author name lives inside <author><name>.
     final authorName = entry
