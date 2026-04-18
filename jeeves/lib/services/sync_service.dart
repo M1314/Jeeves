@@ -2,10 +2,10 @@
 ///
 /// [SyncService] is a [ChangeNotifier] that:
 /// 1. Reads the list of enabled [BlogSource]s from [DatabaseHelper].
-/// 2. For each source, calls [BloggerService.fetchPosts] (with an incremental
+/// 2. For each source, calls [FeedService.fetchPosts] (with an incremental
 ///    `since` timestamp derived from the locally stored data).
 /// 3. Saves fetched posts to the database via [DatabaseHelper.upsertPosts].
-/// 4. For each fetched post, calls [BloggerService.fetchCommentsForPost],
+/// 4. For each fetched post, calls [FeedService.fetchCommentsForPost],
 ///    saves the comments, and updates [Post.commentCount].
 /// 5. Records the sync completion time via [DatabaseHelper.updateLastSyncAt].
 ///
@@ -37,8 +37,8 @@ class SyncService extends ChangeNotifier {
   /// Data-access layer; defaults to the application singleton.
   final DatabaseHelper _db;
 
-  /// HTTP client for the Blogger API; defaults to a new instance.
-  final BloggerService _blogger;
+  /// HTTP client for WordPress and Dreamwidth feeds; defaults to a new instance.
+  final FeedService _feed;
 
   /// Current lifecycle state of the sync operation.
   SyncStatus _status = SyncStatus.idle;
@@ -60,12 +60,12 @@ class SyncService extends ChangeNotifier {
 
   /// Creates a [SyncService].
   ///
-  /// Inject [db] and [blogger] in tests to mock dependencies.
+  /// Inject [db] and [feed] in tests to mock dependencies.
   SyncService({
     DatabaseHelper? db,
-    BloggerService? blogger,
+    FeedService? feed,
   })  : _db = db ?? DatabaseHelper.instance,
-        _blogger = blogger ?? BloggerService();
+        _feed = feed ?? FeedService();
 
   // ─── Public state ─────────────────────────────────────────────────────────
 
@@ -137,13 +137,11 @@ class SyncService extends ChangeNotifier {
 
         // Use the most recent local `updated_at` as the incremental sync
         // boundary; null means this is a first-time full fetch.
-        final since = await _db.getLatestPostUpdatedAt(source.blogId);
+        final since = await _db.getLatestPostUpdatedAt(source.siteUrl);
 
         // Collect all posts into a list first so we know the total count for
-        // progress reporting.  For very large blogs a streaming approach would
-        // be preferable, but typical Blogger blogs have at most a few thousand
-        // posts, making this practical.
-        final posts = await _blogger.fetchPosts(source, since: since).toList();
+        // progress reporting.
+        final posts = await _feed.fetchPosts(source, since: since).toList();
         await _db.upsertPosts(posts);
 
         // Fetch and store comments for each new/updated post.
@@ -158,7 +156,7 @@ class SyncService extends ChangeNotifier {
             'comments for "${post.title}" (${j + 1}/${posts.length})…',
           );
 
-          final comments = await _blogger
+          final comments = await _feed
               .fetchCommentsForPost(source, post.id)
               .toList();
           await _db.upsertComments(comments);
@@ -194,7 +192,7 @@ class SyncService extends ChangeNotifier {
   void dispose() {
     // Release the HTTP client's connection pool when the service is removed
     // from the Provider tree (typically only on app shutdown).
-    _blogger.dispose();
+    _feed.dispose();
     super.dispose();
   }
 }

@@ -5,10 +5,13 @@
 /// reconstructs the tree structure at render time from a flat list of
 /// [Comment]s by matching [parentId] values to sibling [id]s.
 ///
-/// HTML in [body] is preserved verbatim (matching the Blogger API response)
-/// and stripped only when rendering via [plainBody].
+/// HTML in [body] is preserved verbatim and stripped only when rendering via
+/// [plainBody].
+///
+/// WordPress comments are fetched via the `/wp-json/wp/v2/comments` endpoint.
+/// Dreamwidth comment sync is not supported (no public unauthenticated API).
 class Comment {
-  /// Blogger-assigned comment ID (numeric string).
+  /// Unique comment identifier (numeric string).
   final String id;
 
   /// The [Post.id] of the post this comment belongs to.
@@ -27,7 +30,7 @@ class Comment {
   /// UTC timestamp when the comment was originally published.
   final DateTime publishedAt;
 
-  /// Raw HTML body of the comment as returned by the Blogger API.
+  /// Raw HTML body of the comment.
   final String body;
 
   const Comment({
@@ -82,31 +85,35 @@ class Comment {
     };
   }
 
-  /// Parses a [Comment] from a single item in a Blogger API v3 comment list
-  /// response.
+  /// Parses a [Comment] from a single item in a WordPress REST API v2 comment
+  /// list response.
   ///
-  /// [json] should be the JSON object at `items[n]` in the comment list.
-  /// [postId] is supplied by the caller because the Blogger API does not
-  /// embed the parent post ID inside each comment item.
+  /// [json] is the JSON object for one comment from
+  /// `/wp-json/wp/v2/comments?post=<id>`.  [postId] is the owning post ID
+  /// supplied by the caller because it matches the [Post.id] already stored
+  /// locally.
   ///
-  /// The `inReplyTo` field — when present — provides the [parentId] needed
-  /// to reconstruct threaded conversations.
-  factory Comment.fromBloggerJson(Map<String, dynamic> json, String postId) {
-    // `author` is a nested object: { id, displayName, url, image }.
-    final authorMap = json['author'] as Map<String, dynamic>? ?? {};
-    // `inReplyTo` is only present when the comment is a direct reply to
-    // another comment (as opposed to a top-level comment on the post).
-    final inReplyTo = json['inReplyTo'] as Map<String, dynamic>?;
+  /// A `parent` value of `0` means the comment is top-level; any other value
+  /// is the numeric ID of the parent comment.
+  ///
+  /// WordPress returns `date_gmt` as a UTC ISO 8601 string without a 'Z'
+  /// suffix; this constructor appends 'Z' before parsing.
+  factory Comment.fromWordPressJson(Map<String, dynamic> json, String postId) {
+    final rawDate = json['date_gmt'] as String? ?? '';
+    final normalised = rawDate.endsWith('Z') ? rawDate : '${rawDate}Z';
+    final parentId = (json['parent'] as int? ?? 0) == 0
+        ? null
+        : json['parent'].toString();
 
     return Comment(
-      id: json['id'] as String,
+      id: json['id'].toString(),
       postId: postId,
-      parentId: inReplyTo?['id'] as String?,
-      author: authorMap['displayName'] as String? ?? 'Unknown',
-      // Blogger timestamps are RFC 3339 strings.
-      publishedAt: DateTime.tryParse(json['published'] as String? ?? '') ??
-          DateTime.now(),
-      body: json['content'] as String? ?? '',
+      parentId: parentId,
+      author: json['author_name'] as String? ?? 'Unknown',
+      publishedAt: DateTime.tryParse(normalised) ?? DateTime.now(),
+      body: (json['content'] as Map<String, dynamic>?)?['rendered']
+              as String? ??
+          '',
     );
   }
 }

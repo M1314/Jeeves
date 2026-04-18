@@ -4,8 +4,8 @@
 /// - A list of configured [BlogSource]s with per-source sync, edit, and
 ///   delete actions.
 /// - An "Add blog source" dialog that accepts a human-readable name,
-///   Blogger blog ID, optional Google API key, sync interval, and an
-///   enabled/disabled toggle.
+///   site URL, source type (WordPress or Dreamwidth), sync interval, and
+///   an enabled/disabled toggle.
 /// - A sync status banner ([_SyncBanner]) that appears while a sync is
 ///   running or after it completes/fails, using the [SyncService] provided
 ///   in the widget tree.
@@ -56,18 +56,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ///
   /// The dialog uses [StatefulBuilder] so that the dropdown and switch can
   /// update their values reactively without rebuilding the parent screen.
-  /// Validation requires that both the name and blog ID fields are non-empty
+  /// Validation requires that both the name and site URL fields are non-empty
   /// before allowing the user to save.
   Future<void> _showAddEditDialog([BlogSource? existing]) async {
     // Pre-populate controllers with the existing source's values (if editing).
     final nameCtrl =
         TextEditingController(text: existing?.name ?? '');
-    final blogIdCtrl =
-        TextEditingController(text: existing?.blogId ?? '');
-    final apiKeyCtrl =
-        TextEditingController(text: existing?.apiKey ?? '');
+    final siteUrlCtrl =
+        TextEditingController(text: existing?.siteUrl ?? '');
     int intervalHours = existing?.syncIntervalHours ?? 24;
     bool enabled = existing?.enabled ?? true;
+    SourceType sourceType = existing?.sourceType ?? SourceType.wordpress;
 
     // Await the dialog result; `true` means the user pressed Save.
     final saved = await showDialog<bool>(
@@ -91,24 +90,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // ── Blogger numeric blog ID ─────────────────────────
+                  // ── Site URL ────────────────────────────────────────
                   TextField(
-                    controller: blogIdCtrl,
+                    controller: siteUrlCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Blogger Blog ID',
-                      hintText: 'e.g. 123456789',
+                      labelText: 'Site URL',
+                      hintText: 'e.g. https://www.ecosophia.net',
                     ),
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
                   ),
                   const SizedBox(height: 12),
 
-                  // ── Optional Google API key ─────────────────────────
-                  TextField(
-                    controller: apiKeyCtrl,
+                  // ── Source type ─────────────────────────────────────
+                  DropdownButtonFormField<SourceType>(
+                    value: sourceType,
                     decoration: const InputDecoration(
-                      labelText: 'API Key (optional)',
-                      hintText: 'Google API key for Blogger v3',
-                    ),
+                        labelText: 'Source type'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: SourceType.wordpress,
+                        child: Text('WordPress (REST API)'),
+                      ),
+                      DropdownMenuItem(
+                        value: SourceType.dreamwidth,
+                        child: Text('Dreamwidth (Atom feed)'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) {
+                        setDialogState(() => sourceType = v);
+                      }
+                    },
                   ),
                   const SizedBox(height: 12),
 
@@ -155,9 +168,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               FilledButton(
                 onPressed: () {
-                  // Require both name and blog ID before saving.
+                  // Require both name and site URL before saving.
                   if (nameCtrl.text.trim().isEmpty ||
-                      blogIdCtrl.text.trim().isEmpty) {
+                      siteUrlCtrl.text.trim().isEmpty) {
                     return;
                   }
                   Navigator.pop(ctx, true);
@@ -172,18 +185,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (saved != true) return;
 
+    // Normalise the URL: strip trailing slash.
+    final siteUrl =
+        siteUrlCtrl.text.trim().replaceAll(RegExp(r'/$'), '');
+
     // Construct the new or updated BlogSource and persist it.
     final source = BlogSource(
       // Preserve the existing ID when editing; generate a new one for inserts.
       id: existing?.id ??
           DateTime.now().millisecondsSinceEpoch.toString(),
       name: nameCtrl.text.trim(),
-      blogId: blogIdCtrl.text.trim(),
-      // Treat an empty API key field as "no key" (null) rather than storing
-      // an empty string, which could cause issues in API request headers.
-      apiKey: apiKeyCtrl.text.trim().isEmpty
-          ? null
-          : apiKeyCtrl.text.trim(),
+      siteUrl: siteUrl,
+      sourceType: sourceType,
       enabled: enabled,
       lastSyncAt: existing?.lastSyncAt,
       syncIntervalHours: intervalHours,
@@ -293,7 +306,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               title: Text(src.name),
                               subtitle: Text(
-                                'Blog ID: ${src.blogId}\nLast sync: $lastSync',
+                                'URL: ${src.siteUrl}\nLast sync: $lastSync',
                               ),
                               isThreeLine: true,
                               trailing: Row(

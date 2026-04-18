@@ -38,6 +38,7 @@ dependencies:
   # Networking & parsing
   http: ^1.2.2
   html: ^0.15.4
+  xml: ^6.5.0
 
   # Local storage
   sqflite: ^2.3.3

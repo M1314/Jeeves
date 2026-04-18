@@ -39,7 +39,11 @@ class DatabaseHelper {
 
   /// Schema version.  Increment and add a migration in [openDatabase]'s
   /// `onUpgrade` callback whenever the schema changes.
-  static const _dbVersion = 1;
+  ///
+  /// v1 → v2: replaced `blog_id`/`api_key` columns in `blog_sources` with
+  /// `site_url` and `source_type` to support WordPress and Dreamwidth instead
+  /// of the Blogger API.
+  static const _dbVersion = 2;
 
   /// Private constructor — access only via [instance].
   DatabaseHelper._();
@@ -69,6 +73,7 @@ class DatabaseHelper {
       version: _dbVersion,
       // Called once on first open (or after a schema version bump).
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -79,14 +84,14 @@ class DatabaseHelper {
   /// created or nothing is (atomic).
   Future<void> _onCreate(Database db, int version) async {
     // ── blog_sources ──────────────────────────────────────────────────────
-    // Stores user-configured Blogger blogs.  Each row drives one scraping
-    // job in SyncService.
+    // Stores user-configured blog sources (WordPress or Dreamwidth).  Each
+    // row drives one scraping job in SyncService.
     await db.execute('''
       CREATE TABLE blog_sources (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        blog_id TEXT NOT NULL,
-        api_key TEXT,
+        site_url TEXT NOT NULL,
+        source_type TEXT NOT NULL DEFAULT 'wordpress',
         enabled INTEGER NOT NULL DEFAULT 1,
         last_sync_at INTEGER,
         sync_interval_hours INTEGER NOT NULL DEFAULT 24
@@ -236,6 +241,30 @@ class DatabaseHelper {
         'CREATE INDEX comments_published_at ON comments(published_at)');
   }
 
+  /// Migrates the database from [oldVersion] to [newVersion].
+  ///
+  /// v1 → v2: Drop the old `blog_sources` table (which had Blogger-specific
+  /// `blog_id` and `api_key` columns) and recreate it with the new
+  /// `site_url` and `source_type` columns.  Existing synced posts and
+  /// comments are left intact; only the source configuration is cleared,
+  /// because old Blogger-based sources would no longer work anyway.
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('DROP TABLE IF EXISTS blog_sources');
+      await db.execute('''
+        CREATE TABLE blog_sources (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          site_url TEXT NOT NULL,
+          source_type TEXT NOT NULL DEFAULT 'wordpress',
+          enabled INTEGER NOT NULL DEFAULT 1,
+          last_sync_at INTEGER,
+          sync_interval_hours INTEGER NOT NULL DEFAULT 24
+        )
+      ''');
+    }
+  }
+
   // ─── Blog Sources ────────────────────────────────────────────────────────
 
   /// Returns all [BlogSource] rows from the database, unordered.
@@ -325,11 +354,11 @@ class DatabaseHelper {
   /// Returns a list of [Post] rows, optionally filtered and paginated.
   ///
   /// Parameters:
-  /// - [blogId]: when provided, limits results to posts from that blog.
+  /// - [siteUrl]: when provided, limits results to posts from that source.
   /// - [limit] / [offset]: control pagination (SQLite LIMIT / OFFSET).
   /// - [orderBy]: SQL ORDER BY clause; defaults to `published_at DESC`.
   Future<List<Post>> getPosts({
-    String? blogId,
+    String? siteUrl,
     int? limit,
     int? offset,
     String? orderBy,
@@ -337,8 +366,8 @@ class DatabaseHelper {
     final db = await database;
     final rows = await db.query(
       'posts',
-      where: blogId != null ? 'blog_id = ?' : null,
-      whereArgs: blogId != null ? [blogId] : null,
+      where: siteUrl != null ? 'blog_id = ?' : null,
+      whereArgs: siteUrl != null ? [siteUrl] : null,
       orderBy: orderBy ?? 'published_at DESC',
       limit: limit,
       offset: offset,
@@ -347,17 +376,17 @@ class DatabaseHelper {
   }
 
   /// Returns the most recent `updated_at` timestamp across all posts for
-  /// [blogId], or `null` if no posts exist for that blog.
+  /// [siteUrl], or `null` if no posts exist for that source.
   ///
-  /// Used by [SyncService] to set the `startDate` parameter on Blogger API
-  /// requests, enabling incremental sync (only fetch posts newer than this).
-  Future<DateTime?> getLatestPostUpdatedAt(String blogId) async {
+  /// Used by [SyncService] to set the incremental sync boundary, so that
+  /// only posts modified after this timestamp are fetched on subsequent syncs.
+  Future<DateTime?> getLatestPostUpdatedAt(String siteUrl) async {
     final db = await database;
     final rows = await db.query(
       'posts',
       columns: ['MAX(updated_at) as max_updated'],
       where: 'blog_id = ?',
-      whereArgs: [blogId],
+      whereArgs: [siteUrl],
     );
     if (rows.isEmpty || rows.first['max_updated'] == null) return null;
     return DateTime.fromMillisecondsSinceEpoch(

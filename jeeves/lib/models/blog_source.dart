@@ -1,10 +1,22 @@
-/// Immutable configuration record for a Blogger blog that Jeeves should
-/// scrape, store, and keep in sync.
+/// Identifies which platform a [BlogSource] is hosted on, which determines
+/// which HTTP client strategy [FeedService] uses.
+enum SourceType {
+  /// WordPress site — fetched via the WordPress REST API v2
+  /// (`/wp-json/wp/v2/posts` and `/wp-json/wp/v2/comments`).
+  wordpress,
+
+  /// Dreamwidth journal — fetched via the site's public Atom feed
+  /// (`/data/atom`).  Comment sync is not supported for this type.
+  dreamwidth,
+}
+
+/// Immutable configuration record for a blog that Jeeves should scrape,
+/// store, and keep in sync.
 ///
 /// A [BlogSource] is persisted in the `blog_sources` SQLite table and managed
-/// through [SettingsScreen].  Each source maps 1-to-1 to a Blogger blog
-/// identified by [blogId].  Multiple sources can be active simultaneously,
-/// allowing the user to track several Ecosophia-affiliated blogs.
+/// through [SettingsScreen].  Each source maps 1-to-1 to a site identified by
+/// its [siteUrl].  Multiple sources can be active simultaneously, allowing the
+/// user to track several Ecosophia-affiliated blogs.
 class BlogSource {
   /// Application-generated unique identifier for this source (milliseconds
   /// since epoch as a string).  Used as the SQLite primary key.
@@ -14,20 +26,14 @@ class BlogSource {
   /// `"Ecosophia"`.
   final String name;
 
-  /// Blogger-assigned numeric blog ID, e.g. `"123456789"`.  Required by the
-  /// Blogger API v3 for all post and comment requests.
-  final String blogId;
+  /// Base URL of the blog, e.g. `"https://www.ecosophia.net"` or
+  /// `"https://ecosophia.dreamwidth.org"`.  Used by [FeedService] to build
+  /// request URIs.  Trailing slashes are stripped before use.
+  final String siteUrl;
 
-  /// Google API key used to authenticate Blogger API v3 requests.
-  ///
-  /// Optional: the API can be called without a key for public blogs, but the
-  /// unauthenticated quota is lower.  When provided, it is passed as the
-  /// `key` query parameter on every API request.
-  ///
-  /// **Security note**: API keys are stored in plaintext in the local SQLite
-  /// database.  Users should use a key that is restricted to the Blogger API
-  /// and to their device's package ID.
-  final String? apiKey;
+  /// Platform type of this source.  Determines which scraping strategy
+  /// [FeedService] applies (WordPress REST API vs Dreamwidth Atom feed).
+  final SourceType sourceType;
 
   /// Whether this source should be included in automatic and manual sync
   /// operations.  Disabled sources are skipped by [SyncService.syncAll].
@@ -50,8 +56,8 @@ class BlogSource {
   const BlogSource({
     required this.id,
     required this.name,
-    required this.blogId,
-    this.apiKey,
+    required this.siteUrl,
+    this.sourceType = SourceType.wordpress,
     this.enabled = true,
     this.lastSyncAt,
     this.syncIntervalHours = 24,
@@ -66,8 +72,8 @@ class BlogSource {
     return BlogSource(
       id: map['id'] as String,
       name: map['name'] as String,
-      blogId: map['blog_id'] as String,
-      apiKey: map['api_key'] as String?,
+      siteUrl: map['site_url'] as String,
+      sourceType: _sourceTypeFromString(map['source_type'] as String? ?? 'wordpress'),
       // SQLite INTEGER 1/0 → Dart bool.
       enabled: (map['enabled'] as int? ?? 1) == 1,
       // last_sync_at is NULL until the first successful sync completes.
@@ -85,8 +91,8 @@ class BlogSource {
     return {
       'id': id,
       'name': name,
-      'blog_id': blogId,
-      'api_key': apiKey,
+      'site_url': siteUrl,
+      'source_type': sourceType.name,
       // Store bool as INTEGER so SQLite can index and filter efficiently.
       'enabled': enabled ? 1 : 0,
       'last_sync_at': lastSyncAt?.millisecondsSinceEpoch,
@@ -100,8 +106,8 @@ class BlogSource {
   /// value.  Useful in the Settings dialog to apply partial edits.
   BlogSource copyWith({
     String? name,
-    String? blogId,
-    String? apiKey,
+    String? siteUrl,
+    SourceType? sourceType,
     bool? enabled,
     DateTime? lastSyncAt,
     int? syncIntervalHours,
@@ -109,11 +115,18 @@ class BlogSource {
     return BlogSource(
       id: id,
       name: name ?? this.name,
-      blogId: blogId ?? this.blogId,
-      apiKey: apiKey ?? this.apiKey,
+      siteUrl: siteUrl ?? this.siteUrl,
+      sourceType: sourceType ?? this.sourceType,
       enabled: enabled ?? this.enabled,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       syncIntervalHours: syncIntervalHours ?? this.syncIntervalHours,
+    );
+  }
+
+  static SourceType _sourceTypeFromString(String value) {
+    return SourceType.values.firstWhere(
+      (t) => t.name == value,
+      orElse: () => SourceType.wordpress,
     );
   }
 }
