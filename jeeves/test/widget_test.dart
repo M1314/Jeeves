@@ -1,30 +1,43 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+/// Widget tests for [JeevesApp].
+///
+/// These tests verify the top-level application structure — specifically that
+/// the root widget tree renders correctly and exposes the three primary
+/// navigation destinations to the user.
+///
+/// All tests use a [ChangeNotifierProvider] wrapping a real [SyncService] to
+/// mirror the production app setup, while avoiding any actual HTTP or database
+/// calls (those are exercised by unit/integration tests elsewhere).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:provider/provider.dart';
 import 'package:jeeves/main.dart';
+import 'package:jeeves/services/sync_service.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  /// Verifies that [JeevesApp] renders [HomeScreen] with its three
+  /// [NavigationBar] destinations visible.
+  ///
+  /// This is a smoke test that guards against accidental removal of the
+  /// navigation structure during refactoring.
+  testWidgets('JeevesApp renders HomeScreen with bottom navigation',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      // Wrap with a ChangeNotifierProvider to mirror the production
+      // bootstrap in main() — required by any widget that calls
+      // context.watch<SyncService>() or context.read<SyncService>().
+      ChangeNotifierProvider(
+        create: (_) => SyncService(),
+        child: const JeevesApp(),
+      ),
+    );
+    // Allow one frame for any synchronous FutureBuilders or initState calls
+    // (e.g. the database query in SettingsScreen / AnalyticsScreen) to begin.
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // All three NavigationBar destinations should be visible in the widget tree.
+    expect(find.text('Search'), findsOneWidget);
+    expect(find.text('Analytics'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
   });
 }
+
