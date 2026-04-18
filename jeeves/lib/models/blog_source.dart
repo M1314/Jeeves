@@ -84,7 +84,8 @@ class BlogSource {
       siteUrl: map['site_url'] as String,
       sourceType: SourceType.fromString(map['source_type'] as String? ?? 'wordpress'),
       // SQLite INTEGER 1/0 → Dart bool.
-      enabled: (map['enabled'] as int? ?? 1) == 1,      // last_sync_at is NULL until the first successful sync completes.
+      enabled: (map['enabled'] as int? ?? 1) == 1,
+      // last_sync_at is NULL until the first successful sync completes.
       lastSyncAt: map['last_sync_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['last_sync_at'] as int)
           : null,
