@@ -12,6 +12,8 @@
 /// a typed [List<String>] to the rest of the application.
 import 'dart:convert';
 
+import 'package:html/parser.dart' as html_parser;
+
 /// Immutable data model for a blog post scraped from a Blogger/Blogspot site.
 ///
 /// Fields map directly to the Blogger API v3 post resource and to columns in
@@ -73,16 +75,21 @@ class Post {
   /// Plain-text excerpt of the post body, stripped of HTML tags and
   /// normalised whitespace, truncated to 200 characters.
   ///
+  /// Uses the [html] package's DOM parser to extract text from the raw HTML
+  /// returned by the Blogger API for Ecosophia posts.  This handles nested
+  /// elements, HTML entities (e.g. `&amp;`, `&nbsp;`), and malformed markup
+  /// more reliably than regex-based stripping.
+  ///
   /// Used in list and search result tiles where only a short preview is
   /// appropriate.  An ellipsis character is appended when the text is
   /// truncated.
   String get excerpt {
     const maxLength = 200;
-    // Strip all HTML tags with a greedy-enough regex and collapse runs of
-    // whitespace (including newlines produced by block elements) to single
-    // spaces.
-    final text = body
-        .replaceAll(RegExp(r'<[^>]+>'), ' ')
+    // Parse the Blogger-supplied HTML fragment and extract all inner text.
+    // html_parser.parseFragment handles both full documents and bare HTML
+    // snippets as returned by the Blogger API v3 `content` field.
+    final fragment = html_parser.parseFragment(body);
+    final text = (fragment.text ?? '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     return text.length <= maxLength ? text : '${text.substring(0, maxLength)}…';
